@@ -24,4 +24,6 @@ papers/
 │   └── code/              # 실험 스크립트, 결과 CSV, 그래프
 └── 02_Sample_Selection_Bias/
     └── README.md          # 논문 리뷰
+proposal/
+└── design_draft.md        # 프로젝트 설계 초안
 ```
