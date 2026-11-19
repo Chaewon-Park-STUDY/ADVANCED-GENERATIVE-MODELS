@@ -554,7 +554,7 @@ def save_checkpoint(r):
 k_keep = int(args.pool * args.keep)
 start = 1
 if args.resume and CKPT.exists():
-    ck = torch.load(CKPT, map_location=device, weights_only=False)
+    ck = torch.load(CKPT, map_location="cpu", weights_only=False)  # RNG state and data must stay on CPU
     gen = new_cvae_shell()
     gen.load_state_dict(ck["gen"])
     gen.eval()
