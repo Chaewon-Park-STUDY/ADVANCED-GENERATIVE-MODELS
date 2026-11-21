@@ -73,6 +73,27 @@
 
 - **불확실성 항은 precision과 recall의 균형을 바꾼다.** 균형 기준에서 GP나 MC dropout을 붙이면 precision이 0.673에서 0.718~0.775로 오르고 recall은 0.311에서 0.260~0.288로 내려갔다. 편향 기준에서는 gate만 쓴 경우의 precision이 0.728로 GP(0.681)보다 높아, 방향이 조건에 따라 다르다.
 
+## marginal 영역 선택 (rare lift)
+
+숫자 7~9를 data의 marginal 영역으로 두고, verifier가 이 영역의 sample을 실제로 골랐는지 본다. rare lift는 선택된 데이터의 7~9 비율에서 후보 전체의 7~9 비율을 뺀 값이며, 1~10세대 평균이다. 0보다 크면 7~9를 후보보다 많이 고른 것이다.
+
+| verifier | 방법 | rare lift |
+| --- | --- | --- |
+| 균형 | random | 0.012 ± 0.000 |
+| 균형 | top-k | 0.003 ± 0.003 |
+| 균형 | ratio | 0.013 ± 0.003 |
+| 균형 | conformal + ratio | 0.009 ± 0.003 |
+| 균형 | conformal + ratio + MC dropout | 0.005 ± 0.012 |
+| 균형 | conformal + ratio + GP | 0.009 ± 0.011 |
+| 편향 | top-k | 0.002 ± 0.001 |
+| 편향 | ratio | 0.002 ± 0.007 |
+| 편향 | conformal + ratio | −0.001 ± 0.003 |
+| 편향 | conformal + ratio + GP | −0.001 ± 0.002 |
+
+- 모든 방법의 rare lift가 ±0.013 이내로, 7~9를 후보보다 뚜렷하게 더 고른 방법은 없었다.
+- 균형 기준에서는 random도 0.012로 0이 아니어서 이를 기준으로 비교한다. top-k는 0.003으로 random보다 marginal sample을 덜 골랐고, ratio는 0.013으로 random 수준을 유지했다.
+- 편향 기준에서는 모든 방법이 0 근처였다. 따라서 편향 기준의 최소 class recall 차이(0.093 대 0.150)는 선택 비율의 차이로는 설명되지 않으며, verifier가 marginal sample을 판별한다는 근거는 아직 없다.
+
 ## 축소 설정 결과와의 차이
 
 노트북 CPU용 축소 설정(5세대, 후보 2,000장)의 결과는 `results_lite_3seeds/`에 남겨 둔다. 축소 설정에서는 ratio의 precision이 가장 낮았으나, 원래 설정에서는 ratio의 precision이 가장 높았다. 따라서 "ratio 단독은 precision을 떨어뜨린다"는 축소 설정의 해석은 철회한다. 원래 설정에서 확인된 결론은 "ratio 단독은 collapse를 늦추지 못한다"이다.
