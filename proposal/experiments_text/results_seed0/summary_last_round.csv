@@ -1,0 +1,10 @@
+run,rouge1,distinct2,self_bleu,len_std,hallu_in_selected
+conf_ratio_mcd_accumulate,0.2443,0.7064,0.35,7.22,0.048
+conf_ratio_none_replace,0.2231,0.7794,0.2589,8.38,0.0493
+conf_ratio_mcd_replace,0.2135,0.7645,0.2766,9.42,0.0547
+disc_top_none_replace,0.2238,0.7725,0.2657,8.63,0.0427
+disc_top_none_accumulate,0.2499,0.7118,0.348,7.29,0.0093
+random_none_replace,0.2073,0.7505,0.2913,10.11,0.0613
+ratio_none_accumulate,0.2454,0.7147,0.3458,7.04,0.048
+ratio_none_replace,0.2208,0.7655,0.2682,9.03,0.0493
+rouge_top_none_replace,0.2141,0.7685,0.267,9.72,0.0053
