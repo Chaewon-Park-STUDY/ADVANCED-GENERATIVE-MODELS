@@ -12,7 +12,7 @@
 - **원래 설정, GPU:** 10세대, 세대당 후보 5,000장 중 10% 선택, discriminator는 real 5,000장으로 학습, seed 0·1·2.
 - **verifier 조건:**
   - **RQ1, 균형 기준:** discriminator와 calibration이 균형 잡힌 real 데이터를 기준으로 학습한다.
-  - **RQ4, 편향 기준:** discriminator와 calibration의 real 데이터도 생성 모델과 같은 long-tail로 구성한다. verifier가 편향된 일부만 보는 Sample Selection Bias의 상황에 해당한다.
+  - **RQ4, 편향 기준:** discriminator와 calibration의 real 데이터도 생성 모델과 같은 long-tail로 구성한다. verifier가 편향된 일부만 보는 Sample Selection Bias의 상황에 해당한다. 평가는 균형 잡힌 test set으로 하므로, reference와 test의 분포가 다른 경우이기도 하다.
 
 | 방법 | 설명 |
 | --- | --- |
@@ -20,6 +20,12 @@
 | top-k | discriminator logit 상위 10% |
 | ratio | D/(1−D)에 비례해 sampling. discriminator는 temperature scaling 적용 |
 | conformal + ratio + GP | held-out real 기준 conformal gate를 통과한 후보 안에서 ratio sampling. GP posterior variance로 gate는 넓히고 weight는 줄임 |
+
+## 목표 지표와 분포 가정
+
+**목표 지표.** 이 방법은 verifier 점수가 높은 sample을 최대한 많이 고르는 것을 목표로 하지 않는다. density ratio D/(1−D)에 비례해 고르면 선택된 sample이 reference real 분포를 따르게 되므로, 목표는 선택된 데이터와 모델 출력이 real 분포에 가까워지는 것이다. 따라서 주 지표는 real 분포와의 거리인 FID이며, 드문 영역이 빠지지 않았는지는 최소 class recall로 함께 확인한다. ELBO loss, precision, recall, class TV는 collapse의 양상을 진단하는 보조 지표로 쓴다.
+
+**분포 가정.** conformal gate의 통과 보장(held-out real의 99%가 통과)은 calibration에 쓴 real 데이터와 목표 분포가 exchangeable하다는 가정에서만 성립한다. 기본 설정(RQ1)은 이 가정을 따른다. test 분포를 미리 알 수 없는 상황은 RQ4로 본다. RQ4에서는 discriminator와 calibration이 long-tail real만 보지만 FID는 균형 잡힌 MNIST test set으로 계산하므로, reference와 test의 분포가 다른 경우에 해당한다. 이 조건에서도 conformal 계열은 ELBO loss 126 근처를 유지했고, 최소 class recall은 top-k보다 높았다(0.148~0.150 대 0.093). 다만 분포 차이가 이보다 크면 통과 보장은 깨지며, covariate shift를 보정하는 weighted conformal prediction을 후속 방향으로 둔다.
 
 ## 결과: 10세대 시점, 3 seed 평균 ± 표준편차
 

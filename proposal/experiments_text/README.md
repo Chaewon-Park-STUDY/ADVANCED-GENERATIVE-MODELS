@@ -62,6 +62,7 @@ verifier가 고른 데이터에서는 다음이 관찰된다.
 
 - 텍스트에서는 verifier를 쓴 방법의 평균 ROUGE-1이 모두 random보다 높았지만, seed 3개로는 차이가 확정적이지 않다. conformal gate의 이점은 확인되지 않았다.
 - replace에서 discriminator 계열이 고른 데이터의 hallucination 비율은 세대마다 높아졌다. verifier를 매 세대 held-out real 데이터로 보정하는 방향을 proposal에서 검토할 근거가 된다.
+- 이 실험은 calibration과 평가가 모두 XSum에서 나온 데이터라, reference와 test가 같은 분포인 설정이다. 둘의 분포가 다른 경우(예: 일부 주제로 calibration하고 다른 주제로 평가)는 아직 확인하지 않았다.
 - discriminator가 hallucination을 덜 걸러내게 되는 원인과, verifier의 길이 선호가 모델로 전이되는지는 아직 확인되지 않았다. 선택 데이터의 길이만 바꾼 대조 실험과 discriminator의 판단 근거 분석이 필요하다.
 
 ## 실행
