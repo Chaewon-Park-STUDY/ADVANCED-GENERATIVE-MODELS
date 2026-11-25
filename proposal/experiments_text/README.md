@@ -65,6 +65,80 @@ verifier가 고른 데이터에서는 다음이 관찰된다.
 - 이 실험은 calibration과 평가가 모두 XSum에서 나온 데이터라, reference와 test가 같은 분포인 설정이다. 둘의 분포가 다른 경우(예: 일부 주제로 calibration하고 다른 주제로 평가)는 아직 확인하지 않았다.
 - discriminator가 hallucination을 덜 걸러내게 되는 원인과, verifier의 길이 선호가 모델로 전이되는지는 아직 확인되지 않았다. 선택 데이터의 길이만 바꾼 대조 실험과 discriminator의 판단 근거 분석이 필요하다.
 
+## 워터마크 실험 (RQ2)
+
+### 가설
+
+AI 생성 텍스트를 식별하기 위한 watermark는 생성 과정에서 특정 토큰의 선택 확률을 높이므로 생성 분포를 조금 바꾼다. watermark가 들어간 synthetic 데이터로 반복 학습하면 이 변화가 누적되어 출력의 다양성이 줄어드는지 본다. 또한 watermark 검출 점수를 데이터 선택 기준으로 썼을 때 다양성이 유지되는지 본다.
+
+### 검증 방법
+
+Kirchenbauer et al.(2023)의 green list 방식(KGW)을 직접 구현했다. 직전 토큰으로 vocabulary의 25%(γ = 0.25)를 green list로 정하고, synthetic 요약을 생성할 때 green 토큰의 logit에 δ를 더한다. 평가용 요약은 watermark 없이 생성하므로, 평가 출력의 green 비율(eval_green)이 오르면 모델이 watermark 패턴을 학습한 것이다. 이 tokenizer와 hash에서 watermark가 없을 때의 green 비율은 0.26~0.27이다.
+
+나머지 설정은 위 실험과 같다(0세대 real 2,000쌍, 세대마다 후보 3,000개 중 750개 선택, 5세대, hallucination 5% 주입, seed 3개). 선택 방법은 다음 네 가지이다.
+
+| 방법 | 설명 |
+| --- | --- |
+| random | 무작위 선택 |
+| wm_low | watermark z-score가 낮은 순으로 선택 |
+| wm_low_strat | 후보를 길이 기준 10개 구간으로 나누고, 구간마다 z-score가 낮은 요약을 구간 크기에 비례해 선택. 선택된 데이터의 길이 분포가 후보 전체와 같아진다 |
+| discriminator 상위 | 위 실험의 discriminator verifier |
+
+wm_low_strat을 둔 이유는 z-score가 같은 green 비율에서도 짧은 텍스트일수록 작게 나와, wm_low가 watermark가 약한 요약보다 짧은 요약을 고를 수 있기 때문이다.
+
+### 결과
+
+5세대 시점, 3 seed 평균 ± 표준편차이다. 길이는 평균 단어 수이다.
+
+**replace**
+
+| δ | 방법 | ROUGE-1 ↑ | distinct-2 ↑ | self-BLEU ↓ | 출력 길이 | 선택 데이터 길이 | 선택 데이터의 green 비율 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | random | 0.210 ± 0.004 | 0.753 ± 0.010 | 0.287 ± 0.007 | 26.6 | 30.0 | 0.262 |
+| 1 | random | 0.211 ± 0.002 | 0.738 ± 0.014 | 0.298 ± 0.002 | 27.4 | 31.3 | 0.407 |
+| 2 | random | 0.214 ± 0.002 | 0.720 ± 0.002 | 0.311 ± 0.012 | 29.8 | 34.6 | 0.597 |
+| 2 | wm_low | 0.199 ± 0.003 | 0.759 ± 0.003 | 0.293 ± 0.003 | 21.3 | 17.7 | 0.462 |
+| 2 | wm_low_strat | 0.214 ± 0.004 | 0.743 ± 0.006 | 0.298 ± 0.007 | 29.1 | 32.2 | 0.452 |
+| 2 | discriminator 상위 | 0.218 ± 0.001 | 0.765 ± 0.009 | 0.271 ± 0.009 | 25.3 | 25.6 | 0.565 |
+
+**accumulate**
+
+| δ | 방법 | ROUGE-1 ↑ | distinct-2 ↑ | self-BLEU ↓ | 출력 길이 | 선택 데이터 길이 | 선택 데이터의 green 비율 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | random | 0.246 ± 0.005 | 0.697 ± 0.002 | 0.352 ± 0.006 | 25.2 | 28.0 | 0.266 |
+| 2 | random | 0.241 ± 0.004 | 0.685 ± 0.005 | 0.365 ± 0.012 | 26.0 | 29.8 | 0.605 |
+| 2 | wm_low | 0.243 ± 0.003 | 0.706 ± 0.008 | 0.344 ± 0.011 | 22.1 | 19.7 | 0.474 |
+| 2 | wm_low_strat | 0.240 ± 0.005 | 0.690 ± 0.004 | 0.354 ± 0.012 | 25.9 | 28.5 | 0.469 |
+
+![watermark replace](results_wm/plot_replace.png)
+
+![watermark accumulate](results_wm/plot_accumulate.png)
+
+**watermark가 다양성에 미치는 영향**
+
+- **replace에서는 watermark 강도가 클수록 다양성이 줄었다.** random 선택에서 δ가 0, 1, 2로 커지면 distinct-2는 0.753, 0.738, 0.720으로 낮아지고 self-BLEU는 0.287, 0.298, 0.311로 높아졌다. δ = 0과 δ = 2의 distinct-2 차이 0.033은 표준편차의 약 3배이다. ROUGE-1은 떨어지지 않았다.
+- **accumulate에서도 같은 방향이지만 감소 폭이 작다.** δ = 0에서 δ = 2로 바뀌면 distinct-2가 0.697에서 0.685로 0.012 낮아졌다(큰 쪽 표준편차의 약 2.4배). self-BLEU 차이는 표준편차 수준이다. real 데이터가 계속 남아 있어 watermark의 영향이 희석된 것으로 보인다.
+- **watermark 자체는 학습된 모델에서 검출되지 않았다.** eval_green은 replace의 모든 δ에서 0.27 근처로 watermark가 없을 때와 같았다. accumulate의 δ = 2에서는 0.279로 δ = 0(0.267)보다 조금 높았지만, 검출 기준에는 한참 못 미친다. 정리하면 watermark는 검출되지 않을 만큼 옅어진 채로 다양성만 줄었다.
+
+**길이 효과의 분리**
+
+- δ = 2에서는 생성 요약이 길어져(출력 26.6 → 29.8단어), 다양성 감소의 일부가 길이 증가 때문일 수 있었다. replace 조건에서 출력 길이와 distinct-2의 상관은 −0.76이다.
+- wm_low_strat은 출력 길이가 29.1단어로 δ = 2 random(29.8단어)과 비슷하지만, distinct-2는 0.743으로 δ = 2 random보다 0.023 높고(표준편차의 약 4배) δ = 0(0.753)에 가깝다. ROUGE-1도 0.214로 같다. 따라서 replace에서의 다양성 감소는 길이만으로 설명되지 않으며, watermark가 강한 요약을 학습에 쓴 것이 원인의 일부이다.
+- 길이를 통제하지 않은 wm_low는 짧은 요약(17.7~19.7단어)을 골라 다양성은 높았지만, replace에서 ROUGE-1이 0.199로 가장 낮았다.
+
+**watermark 검출을 verifier로 쓰는 효과**
+
+- **replace에서는 효과가 있었다.** 길이를 맞춘 wm_low_strat은 ROUGE-1을 유지한 채 watermark로 생긴 distinct-2 감소(0.033)의 약 2/3를 회복했다.
+- **accumulate에서는 효과가 불분명하다.** wm_low_strat의 distinct-2는 0.690으로 δ = 2 random(0.685)과 δ = 0(0.697)의 사이였고, 차이는 표준편차 수준이었다. wm_low의 다양성 이점(0.706)은 짧은 요약을 고른 효과가 대부분이다.
+- **discriminator 상위는 replace 조건 중 ROUGE-1과 다양성이 가장 높았다.** 선택된 데이터의 hallucination 비율도 0.024로, watermark 없이 같은 방법을 쓴 위 실험(0.052)보다 낮았다. watermark 때문에 생성 텍스트가 real과 더 잘 구분되었을 가능성이 있으나, 이 실험만으로는 확인할 수 없다.
+
+### 정리
+
+- watermark가 들어간 synthetic 데이터로 반복 학습하면, watermark는 검출되지 않을 만큼 옅어지지만 출력 다양성은 줄어든다. 감소는 replace에서 뚜렷하고 accumulate에서는 작다.
+- 이 감소는 길이 변화만으로 설명되지 않는다. 길이를 맞춘 상태에서 watermark가 약한 요약을 고르면 replace에서 다양성이 상당 부분 회복되었다.
+- watermark 검출 점수를 verifier로 쓸 때는 길이 보정이 필요하다. 보정하지 않으면 짧은 요약을 고르는 효과가 섞인다.
+- 규모(5세대, 2,000쌍)와 seed 수(3개)가 작아, accumulate에서의 효과는 더 긴 세대와 더 많은 seed로 확인해야 한다.
+
 ## 실행
 
 ```powershell
@@ -72,4 +146,7 @@ py run_all_text.py --quick         # 시간 측정용, 1세대
 py run_all_text.py                 # seed 0, 9개 run
 py run_all_text.py --seeds 1 2     # seed 1, 2 추가
 py plot_results.py text_runs --text
+
+py run_all_text.py --wm --seeds 0 1 2   # watermark 실험, text_runs_wm에 저장
+py plot_results.py text_runs_wm --text
 ```

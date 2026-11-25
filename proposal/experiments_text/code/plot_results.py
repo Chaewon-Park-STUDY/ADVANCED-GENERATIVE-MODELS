@@ -34,6 +34,8 @@ df.to_csv(root / "summary_all_rounds.csv", index=False)
 if text:
     q, qlab, d, dlab = "rouge1", "ROUGE-1 (higher is better)", "distinct2", "distinct-2 (higher is more diverse)"
     extra = ["self_bleu", "len_std", "hallu_in_selected"]
+    if "eval_green" in df.columns:  # watermark grid
+        extra = ["self_bleu", "eval_green", "sel_green", "hallu_in_selected"]
 else:
     q, qlab, d, dlab = "fid", "FID (lower is better)", "recall", "Recall (higher is more diverse)"
     extra = ["val_loss", "min_class_recall", "class_tv", "artifact_in_selected"]

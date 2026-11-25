@@ -40,7 +40,7 @@ import torch
 import torch.nn.functional as F
 
 p = argparse.ArgumentParser()
-p.add_argument("--method", default="conf_ratio", choices=["random", "rouge_top", "disc_top", "ratio", "conf_ratio"])
+p.add_argument("--method", default="conf_ratio", choices=["random", "rouge_top", "disc_top", "ratio", "conf_ratio", "wm_low", "wm_low_strat"])
 p.add_argument("--unc", default="none", choices=["none", "mcd"])
 p.add_argument("--regime", default="replace", choices=["replace", "accumulate"])
 p.add_argument("--rounds", type=int, default=5)
@@ -68,6 +68,10 @@ p.add_argument("--disc_len", type=int, default=320)
 p.add_argument("--mc_T", type=int, default=10)
 p.add_argument("--n_test", type=int, default=300)
 p.add_argument("--seed", type=int, default=0)
+# Watermark (Kirchenbauer et al., 2023 style soft watermark, green list seeded by the previous token)
+p.add_argument("--wm_delta", type=float, default=0.0, help="logit bias added to green tokens when generating synthetic data; 0 = off")
+p.add_argument("--wm_gamma", type=float, default=0.25, help="fraction of the vocabulary that is green")
+p.add_argument("--wm_key", type=int, default=15485863)
 p.add_argument("--out", default="text_runs")
 p.add_argument("--tag", default=None)
 p.add_argument("--local_test", action="store_true", help="tiny random models and fake data, for checking the code")
@@ -214,7 +218,7 @@ def fine_tune(pairs):
 
 
 @torch.no_grad()
-def summarize(model, articles, temperature, top_p):
+def summarize(model, articles, temperature, top_p, wm_delta=0.0):
     outs = []
     for i in range(0, len(articles), args.gen_bs):
         prompts = [prompt_ids(a) for a in articles[i:i + args.gen_bs]]
@@ -226,11 +230,56 @@ def summarize(model, articles, temperature, top_p):
         with torch.autocast(device.type, dtype=torch.bfloat16, enabled=use_bf16):
             gen = model.generate(input_ids=ids.to(device), attention_mask=att.to(device), do_sample=True,
                                  temperature=temperature, top_p=top_p, max_new_tokens=args.max_new_tokens,
-                                 pad_token_id=TOK.pad_token_id, eos_token_id=TOK.eos_token_id)
+                                 pad_token_id=TOK.pad_token_id, eos_token_id=TOK.eos_token_id,
+                                 logits_processor=LogitsProcessorList([GreenBias(wm_delta)]) if wm_delta > 0 else None)
         for row in gen[:, L:]:
             text = TOK.decode(row, skip_special_tokens=True).strip().split("\n")[0].strip()
             outs.append(text if text else ".")
     return outs
+
+
+# ----------------------------------------------------------------------------------------------
+# Watermark: green list from a hash of (previous token, candidate token); detection by z-score
+# ----------------------------------------------------------------------------------------------
+_P = 2147483647  # 2^31 - 1, so products of two residues fit in int64
+
+
+def green_mask(prev, vocab):
+    """prev: (B,) or (N,) previous token ids, vocab: (V,) or (N,) candidate ids -> bool tensor, broadcast."""
+    x = (prev.long() * 1000003 + vocab.long() * 7919 + args.wm_key) % _P
+    x = (x * x + 12345) % _P
+    x = (x * x + 67890) % _P
+    return x < int(args.wm_gamma * _P)
+
+
+from transformers import LogitsProcessor, LogitsProcessorList  # noqa: E402
+
+
+class GreenBias(LogitsProcessor):
+    def __init__(self, delta):
+        self.delta = delta
+
+    def __call__(self, input_ids, scores):
+        V = scores.shape[-1]
+        mask = green_mask(input_ids[:, -1:], torch.arange(V, device=scores.device)[None, :])
+        return scores + self.delta * mask.to(scores.dtype)
+
+
+def wm_score(texts):
+    """Green-token fraction and z-score of each text (first token skipped: its context is the prompt)."""
+    fr, zs = [], []
+    g = args.wm_gamma
+    for t in texts:
+        ids = torch.tensor(TOK(" " + t.strip(), add_special_tokens=False)["input_ids"])
+        T = len(ids) - 1
+        if T < 1:
+            fr.append(g)
+            zs.append(0.0)
+            continue
+        n_green = int(green_mask(ids[:-1], ids[1:]).sum())
+        fr.append(n_green / T)
+        zs.append((n_green - g * T) / math.sqrt(T * g * (1 - g)))
+    return torch.tensor(fr), torch.tensor(zs)
 
 
 # ----------------------------------------------------------------------------------------------
@@ -353,6 +402,28 @@ def select(gen_s, arts, refs, k):
     n = len(gen_s)
     if args.method == "random":
         return torch.randperm(n)[:k], info
+    if args.method == "wm_low":  # watermark detector as verifier: keep the least machine-like summaries
+        _, z = wm_score(gen_s)
+        return torch.topk(-z, k).indices, info
+    if args.method == "wm_low_strat":  # wm_low within token-length bins, so the kept set has the pool's length mix
+        _, z = wm_score(gen_s)
+        L = torch.tensor([len(TOK(" " + t.strip(), add_special_tokens=False)["input_ids"]) for t in gen_s], dtype=torch.float)
+        edges = torch.quantile(L, torch.linspace(0, 1, 11)[1:-1])
+        b = torch.bucketize(L, edges)
+        keep = []
+        for j in range(11):
+            idx = torch.nonzero(b == j).squeeze(1)
+            if len(idx) == 0:
+                continue
+            kj = int(round(k * len(idx) / n))
+            keep.append(idx[torch.topk(-z[idx], min(kj, len(idx))).indices])
+        keep = torch.cat(keep)
+        if len(keep) < k:  # rounding shortfall: fill with the lowest z among the rest
+            rest = torch.tensor(sorted(set(range(n)) - set(keep.tolist())))
+            keep = torch.cat([keep, rest[torch.topk(-z[rest], k - len(keep)).indices]])
+        if len(keep) > k:  # rounding excess: drop the highest z
+            keep = keep[torch.topk(-z[keep], k).indices]
+        return keep, info
     if args.method == "rouge_top":
         r = torch.tensor([ROUGE.score(refs[i], gen_s[i])["rouge1"].fmeasure for i in range(n)])
         return torch.topk(r, k).indices, info
@@ -434,7 +505,9 @@ ROWS = []
 def evaluate(model, round_id, extra):
     outs = summarize(model, [r["document"] for r in test], temperature=0.7, top_p=0.9)
     r1 = float(np.mean([ROUGE.score(r["summary"], o)["rouge1"].fmeasure for r, o in zip(test, outs)]))
-    row = dict(round=round_id, rouge1=round(r1, 4), **text_stats(outs), **extra)
+    gf, gz = wm_score(outs)  # eval outputs are never watermarked: this measures what the model absorbed
+    row = dict(round=round_id, rouge1=round(r1, 4), **text_stats(outs), eval_green=round(float(gf.mean()), 4),
+               eval_wm_z=round(float(gz.mean()), 4), **extra)
     ROWS.append(row)
     pd.DataFrame(ROWS).to_csv(OUT / "results.csv", index=False)
     with open(OUT / f"samples_round{round_id}.jsonl", "w", encoding="utf-8") as f:
@@ -495,7 +568,7 @@ else:
 
 for rd in range(start, args.rounds + 1):
     t0 = time.time()
-    gen_s = summarize(model, pool_arts, args.temperature, args.top_p)
+    gen_s = summarize(model, pool_arts, args.temperature, args.top_p, wm_delta=args.wm_delta)
     # hallucination proxy: replace some summaries by the generated summary of another article
     n_h = int(args.hallu_frac * len(gen_s))
     h_idx = random.sample(range(len(gen_s)), n_h)
@@ -513,6 +586,8 @@ for rd in range(start, args.rounds + 1):
     sel_r1 = float(np.mean([ROUGE.score(pool_refs[i], gen_s[i])["rouge1"].fmeasure for i in sel.tolist()]))
     extra = dict(n_selected=len(sel), hallu_in_pool=round(float(is_h.float().mean()), 4),
                  hallu_in_selected=round(float(is_h[sel].float().mean()), 4), selected_rouge1=round(sel_r1, 4),
+                 pool_green=round(float(wm_score(gen_s)[0].mean()), 4),
+                 sel_green=round(float(wm_score([g for _, g in sel_pairs])[0].mean()), 4),
                  **{f"sel_{k_}": v for k_, v in text_stats([g for _, g in sel_pairs]).items()}, **info)
 
     if args.regime == "replace":
