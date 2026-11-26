@@ -15,6 +15,8 @@
 
 두 논문은 같은 질문에 대해 서로 대척점에 있는 결론을 내린다. 첫 번째 논문은 verifier 기반 선별이 collapse를 완화한다고 보고, 두 번째 논문은 편향된 verifier 기반 선별이 collapse를 가속한다고 본다.
 
+## Proposal
+
 ## 구조
 
 ```
@@ -26,4 +28,6 @@ papers/
     └── README.md          # 논문 리뷰
 proposal/
 └── design_draft.md        # 프로젝트 설계 초안
+
+
 ```
