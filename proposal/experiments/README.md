@@ -1,5 +1,7 @@
 # Proposal 예비 실험: long-tail MNIST에서의 synthetic data selection
 
+> 용어: 이전 문서의 "conformal gate"를 "conformal threshold"로 바꾸어 부른다. 방법은 같다.
+
 ## 설정
 
 - **데이터:** 초기 real 500장을 long-tail로 구성한다. 숫자 9가 숫자 0의 1/10이며, 숫자 7~9가 드문 mode 역할을 한다.
@@ -19,15 +21,15 @@
 | random | verifier 없이 무작위 선택 |
 | top-k | discriminator logit 상위 10% |
 | ratio | D/(1−D)에 비례해 sampling. discriminator는 temperature scaling 적용 |
-| conformal + ratio | held-out real 기준 conformal gate를 통과한 후보 안에서 ratio sampling |
+| conformal + ratio | held-out real 기준 conformal threshold를 넘은 후보 안에서 ratio sampling |
 | conformal + ratio + MC dropout | 위에 MC dropout 불확실성을 더함 |
-| conformal + ratio + GP | 위에 GP posterior variance를 더함. gate는 넓히고 weight는 줄임 |
+| conformal + ratio + GP | 위에 GP posterior variance를 더함. 통과 기준은 넓히고 weight는 줄임 |
 
 ## 목표 지표와 분포 가정
 
 **목표 지표.** 이 방법은 verifier 점수가 높은 sample을 최대한 많이 고르는 것을 목표로 하지 않는다. density ratio D/(1−D)에 비례해 고르면 선택된 sample이 reference real 분포를 따르게 되므로, 목표는 선택된 데이터와 모델 출력이 real 분포에 가까워지는 것이다. 따라서 주 지표는 real 분포와의 거리인 FID이며, 드문 영역이 빠지지 않았는지는 최소 class recall로 함께 확인한다. ELBO loss, precision, recall, class TV는 collapse의 양상을 진단하는 보조 지표로 쓴다.
 
-**분포 가정.** conformal gate의 통과 보장(held-out real의 99%가 통과)은 calibration에 쓴 real 데이터와 목표 분포가 exchangeable하다는 가정에서만 성립한다. 기본 설정(RQ1)은 이 가정을 따른다. test 분포를 미리 알 수 없는 상황은 RQ4로 본다. RQ4에서는 discriminator와 calibration이 long-tail real만 보지만 FID는 균형 잡힌 MNIST test set으로 계산하므로, reference와 test의 분포가 다른 경우에 해당한다. 이 조건에서도 conformal 계열은 ELBO loss 126 근처를 유지했고, 최소 class recall은 top-k보다 높았다(0.148~0.150 대 0.093). 다만 분포 차이가 이보다 크면 통과 보장은 깨지며, covariate shift를 보정하는 weighted conformal prediction을 후속 방향으로 둔다.
+**분포 가정.** conformal threshold의 통과 보장(held-out real의 99%가 통과)은 calibration에 쓴 real 데이터와 목표 분포가 exchangeable하다는 가정에서만 성립한다. 기본 설정(RQ1)은 이 가정을 따른다. test 분포를 미리 알 수 없는 상황은 RQ4로 본다. RQ4에서는 discriminator와 calibration이 long-tail real만 보지만 FID는 균형 잡힌 MNIST test set으로 계산하므로, reference와 test의 분포가 다른 경우에 해당한다. 이 조건에서도 conformal 계열은 ELBO loss 126 근처를 유지했고, 최소 class recall은 top-k보다 높았다(0.148~0.150 대 0.093). 다만 분포 차이가 이보다 크면 통과 보장은 깨지며, covariate shift를 보정하는 weighted conformal prediction을 후속 방향으로 둔다.
 
 ## 결과: 10세대 시점, 3 seed 평균 ± 표준편차
 
@@ -59,15 +61,15 @@
 **차이가 표준편차보다 확실히 큰 결과**
 
 - **verifier가 없으면 collapse가 뚜렷하다.** random은 10세대에서 ELBO loss 145, FID 191로 가장 크게 악화되었다.
-- **conformal gate가 collapse를 크게 늦췄다.**
-  - gate를 쓴 모든 방법이 두 verifier 조건 모두에서 ELBO loss 126 근처에 머물렀다. top-k와 ratio는 135~137까지 상승했다.
-  - 세대별로 보면 gate를 쓴 방법은 4세대 이후 ELBO loss가 거의 일정했지만, top-k와 ratio는 10세대까지 계속 증가했다.
-  - FID도 gate를 쓴 방법이 118~122로 가장 낮았다.
+- **conformal threshold가 collapse를 크게 늦췄다.**
+  - threshold를 쓴 모든 방법이 두 verifier 조건 모두에서 ELBO loss 126 근처에 머물렀다. top-k와 ratio는 135~137까지 상승했다.
+  - 세대별로 보면 threshold를 쓴 방법은 4세대 이후 ELBO loss가 거의 일정했지만, top-k와 ratio는 10세대까지 계속 증가했다.
+  - FID도 threshold를 쓴 방법이 118~122로 가장 낮았다.
 - **GP는 collapse 완화에 추가로 기여하지 않았다.**
-  - gate만 쓴 경우와 gate + GP의 ELBO loss는 균형 기준 126.1 대 126.0, 편향 기준 126.1 대 126.2로 같았다.
-  - FID는 오히려 gate만 쓴 경우가 낮았다(119.7 대 122.1, 118.3 대 120.3). 다만 편향 기준은 표준편차가 2 이상이라 차이라고 보기 어렵다.
+  - threshold만 쓴 경우와 threshold + GP의 ELBO loss는 균형 기준 126.1 대 126.0, 편향 기준 126.1 대 126.2로 같았다.
+  - FID는 오히려 threshold만 쓴 경우가 낮았다(119.7 대 122.1, 118.3 대 120.3). 다만 편향 기준은 표준편차가 2 이상이라 차이라고 보기 어렵다.
   - GP가 기여할 여지가 있다고 본 편향 기준에서도 최소 class recall이 0.150 대 0.148로 같았다.
-- **ratio 단독은 top-k와 collapse 정도가 같았다.** ELBO loss와 FID 모두 차이가 없었다. density ratio 보정만으로는 collapse를 늦추지 못하며, conformal gate와의 결합이 필요하다.
+- **ratio 단독은 top-k와 collapse 정도가 같았다.** ELBO loss와 FID 모두 차이가 없었다. density ratio 보정만으로는 collapse를 늦추지 못하며, conformal threshold와의 결합이 필요하다.
 
 **경향 수준의 결과**
 
@@ -77,7 +79,7 @@
   - 반면 ratio 계열은 편향 기준에서도 최소 class recall을 유지했다.
 - **recall은 verifier를 쓴 방법 사이에 차이가 없었다.** 모두 0.27~0.29로, random 0.236보다 높았다.
 
-- **불확실성 항은 precision과 recall의 균형을 바꾼다.** 균형 기준에서 GP나 MC dropout을 붙이면 precision이 0.673에서 0.718~0.775로 오르고 recall은 0.311에서 0.260~0.288로 내려갔다. 편향 기준에서는 gate만 쓴 경우의 precision이 0.728로 GP(0.681)보다 높아, 방향이 조건에 따라 다르다.
+- **불확실성 항은 precision과 recall의 균형을 바꾼다.** 균형 기준에서 GP나 MC dropout을 붙이면 precision이 0.673에서 0.718~0.775로 오르고 recall은 0.311에서 0.260~0.288로 내려갔다. 편향 기준에서는 threshold만 쓴 경우의 precision이 0.728로 GP(0.681)보다 높아, 방향이 조건에 따라 다르다.
 
 ## marginal 영역 선택 (rare lift)
 
@@ -99,6 +101,21 @@
 - 모든 방법의 rare lift가 ±0.013 이내로, 7~9를 후보보다 뚜렷하게 더 고른 방법은 없었다.
 - 균형 기준에서는 random도 0.012로 0이 아니어서 이를 기준으로 비교한다. top-k는 0.003으로 random보다 marginal sample을 덜 골랐고, ratio는 0.013으로 random 수준을 유지했다.
 - 편향 기준에서는 모든 방법이 0 근처였다. 따라서 편향 기준의 최소 class recall 차이(0.093 대 0.150)는 선택 비율의 차이로는 설명되지 않으며, verifier가 marginal sample을 판별한다는 근거는 아직 없다.
+
+## top-k의 선택 기준과 드문 영역
+
+top-k가 분포의 꼬리를 자르는지는 무엇으로 순위를 매기는지에 달려 있다.
+
+- Paper 2의 top-k는 고정된 기준점(중심)에 가까운 순으로 고르므로, 세대마다 가장자리가 잘린다.
+- 이 실험의 top-k는 discriminator 점수 D(real일 확률)로 고른다. 생성 모델이 덜 만드는 영역의 sample은 D가 높게 나오므로, top-k는 오히려 이런 영역을 우선해서 고른다. 실제로 top-k의 rare lift는 0.002~0.003으로 후보 비율보다 낮지 않았다.
+- 우리 방법도 D/(1−D)에 비례해 뽑으므로 같은 방향이지만, 비율을 99% 분위수에서 자르고(clipping) 확률적으로 뽑기 때문에 이 효과가 약해질 수 있다.
+- 따라서 conformal threshold의 이점은 "꼬리를 지킨다"보다 "상위 일부에 몰리지 않고 오류만 걸러낸다"로 설명하는 것이 정확하다.
+
+2차원 toy 실험(`code/toy2d.py`)으로도 같은 점을 확인했다. 원 위의 가우시안 8개 중 하나를 드문 영역(3%)으로 두고, Gaussian mixture를 10세대 Accumulate로 재학습했다(후보의 5%는 노이즈 오류, seed 3개). 10세대 후 드문 영역의 비율은 top-k 0.025~0.035, 우리 방법 0.002~0.019, random 0.005~0.006이었다. 이 설정에서는 discriminator 점수 기반 top-k가 드문 영역을 가장 잘 보존했다.
+
+## 재현 확인 (진행 중)
+
+세대별 sample 그리드를 저장하도록 `code/run_selection_grid.py`를 만들고, 균형 기준 seed 0을 CPU에서 같은 설정(FID 제외)으로 다시 돌렸다. 10세대 ELBO loss는 top-k 125.8, 우리 방법 124.8로, GPU 결과(top-k 134.8, 우리 방법 126.0)와 달리 top-k의 loss가 오르지 않았다. 실행 환경과 FID 계산 여부 외에는 설정이 같으므로, GPU에서 top-k를 다시 돌려 기존 결과가 재현되는지 확인 중이다. 확인 전까지는 top-k 대비 차이를 잠정 결과로 본다.
 
 ## 축소 설정 결과와의 차이
 
